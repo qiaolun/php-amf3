@@ -12,6 +12,9 @@
 #include "ext/standard/info.h"
 #include "amf3.h"
 
+#ifndef PHP_FE_END
+#define PHP_FE_END {NULL, NULL, NULL}
+#endif
 
 static PHP_MINIT_FUNCTION(amf3);
 static PHP_MINFO_FUNCTION(amf3);
