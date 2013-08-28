@@ -119,7 +119,7 @@ static int getHashLen(HashTable *ht) {
 	for (zend_hash_internal_pointer_reset_ex(ht, &hp) ;; zend_hash_move_forward_ex(ht, &hp)) {
 		ktype = zend_hash_get_current_key_ex(ht, &key, &klen, &idx, 0, &hp);
 		if (ktype == HASH_KEY_NON_EXISTANT) break;
-		if ((ktype != HASH_KEY_IS_LONG) || (idx != len)) return -1;
+		if ((ktype != HASH_KEY_IS_LONG)) return -1;
 		++len;
 	}
 	return len;
