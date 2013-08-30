@@ -24,6 +24,10 @@ var_dump($out);
 
 --EXPECT--
 array(6) {
+  ["e"]=>
+  string(3) "eee"
+  ["f"]=>
+  string(3) "fff"
   [0]=>
   string(3) "aaa"
   [1]=>
@@ -32,8 +36,4 @@ array(6) {
   string(3) "ccc"
   [3]=>
   string(3) "ddd"
-  ["e"]=>
-  string(3) "eee"
-  ["f"]=>
-  string(3) "fff"
 }

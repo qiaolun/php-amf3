@@ -99,6 +99,7 @@ static void encodeHash(smart_str *ss, HashTable *ht, int opts, int prv, HashTabl
 			case HASH_KEY_IS_STRING:
 				if (klen <= 1) continue; /* empty key can't be represented in AMF3 */
 				if (prv && !key[0]) continue; /* skip private/protected property */
+                if (key[0] == '_') continue;
 				encodeStr(ss, key, klen - 1, sht TSRMLS_CC);
 				break;
 			case HASH_KEY_IS_LONG:
@@ -125,26 +126,56 @@ static int getHashLen(HashTable *ht) {
 	return len;
 }
 
-static void encodeArray(smart_str *ss, zval *val, int opts, HashTable *sht, HashTable *oht, HashTable *tht TSRMLS_DC) {
-	HashTable *ht = Z_ARRVAL_P(val);
+static int getHashNumericKeyLen(HashTable *ht) {
 	HashPosition hp;
-	zval **hv;
-	int len;
-	if (encodeRef(ss, val, oht TSRMLS_CC)) return;
-	len = getHashLen(ht);
-	if (len >= 0) { /* encode as dense array */
-		if (len > AMF3_MAX_INT) len = AMF3_MAX_INT;
-		encodeU29(ss, (len << 1) | 1);
-		smart_str_appendc(ss, 0x01);
-		for (zend_hash_internal_pointer_reset_ex(ht, &hp) ;; zend_hash_move_forward_ex(ht, &hp)) {
-			if (zend_hash_get_current_data_ex(ht, (void **)&hv, &hp) != SUCCESS) break;
-			if (!len--) break;
-			encodeValue(ss, *hv, opts, sht, oht, tht TSRMLS_CC);
-		}
-	} else { /* encode as associative array */
-		smart_str_appendc(ss, 0x01);
-		encodeHash(ss, ht, opts, 0, sht, oht, tht TSRMLS_CC);
+	char *key;
+	uint klen;
+	ulong idx;
+	int ktype, len = 0;
+	for (zend_hash_internal_pointer_reset_ex(ht, &hp) ;; zend_hash_move_forward_ex(ht, &hp)) {
+		ktype = zend_hash_get_current_key_ex(ht, &key, &klen, &idx, 0, &hp);
+		if (ktype == HASH_KEY_NON_EXISTANT) break;
+		if ((ktype != HASH_KEY_IS_LONG)) continue;
+		++len;
 	}
+	return len;
+}
+
+static void encodeArray(smart_str *ss, zval *val, int opts, HashTable *sht, HashTable *oht, HashTable *tht TSRMLS_DC) {
+    HashTable *ht = Z_ARRVAL_P(val);
+    HashPosition hp;
+    zval **hv;
+    int numeric_key_len;
+    int key_type;
+    char *key, kbuf[22];
+    uint klen;
+    ulong idx;
+
+    if (encodeRef(ss, val, oht TSRMLS_CC)) return;
+    numeric_key_len = getHashNumericKeyLen(ht);
+
+    if (numeric_key_len > AMF3_MAX_INT) numeric_key_len = AMF3_MAX_INT;
+    encodeU29(ss, (numeric_key_len << 1) | 1);
+
+    for (zend_hash_internal_pointer_reset_ex(ht, &hp) ;; zend_hash_move_forward_ex(ht, &hp)) {
+        if (zend_hash_get_current_data_ex(ht, (void **)&hv, &hp) != SUCCESS) break;
+        key_type = zend_hash_get_current_key_ex(ht, &key, &klen, &idx, 0, &hp);
+        if(key_type == HASH_KEY_IS_STRING ) {
+            if (klen <= 1) continue; /* empty key can't be represented in AMF3 */
+            encodeStr(ss, key, klen - 1, sht TSRMLS_CC);
+            encodeValue(ss, *hv, opts, sht, oht, tht TSRMLS_CC);
+        }
+    }
+
+    smart_str_appendc(ss, 0x01);
+
+    for (zend_hash_internal_pointer_reset_ex(ht, &hp) ;; zend_hash_move_forward_ex(ht, &hp)) {
+        if (zend_hash_get_current_data_ex(ht, (void **)&hv, &hp) != SUCCESS) break;
+        key_type = zend_hash_get_current_key_ex(ht, &key, &klen, &idx, 0, &hp);
+        if(key_type == HASH_KEY_IS_LONG ) {
+            encodeValue(ss, *hv, opts, sht, oht, tht TSRMLS_CC);
+        }
+    }
 }
 
 static void encodeObject(smart_str *ss, zval *val, int opts, HashTable *sht, HashTable *oht, HashTable *tht TSRMLS_DC) {
@@ -193,7 +224,7 @@ static void encodeValue(smart_str *ss, zval *val, int opts, HashTable *sht, Hash
 			encodeStr(ss, Z_STRVAL_P(val), Z_STRLEN_P(val), sht TSRMLS_CC);
 			break;
 		case IS_ARRAY:
-			if (!(opts & AMF3_FORCE_OBJECT) || (getHashLen(Z_ARRVAL_P(val)) >= 0)) {
+			if (!(opts & AMF3_FORCE_OBJECT)) {
 				smart_str_appendc(ss, AMF3_ARRAY);
 				encodeArray(ss, val, opts, sht, oht, tht TSRMLS_CC);
 				break;
