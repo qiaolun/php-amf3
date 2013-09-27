@@ -271,6 +271,9 @@ static int decodeObject(zval **val, const char *buf, int pos, int size, int opts
 			}
 			tr = *trp;
 		}
+ 		if (!tr->clen) {
+ 			map = 1;
+ 		}
 		ZVAL_RESET(*val);
 		if (!map) array_init(*val);
 		else {
