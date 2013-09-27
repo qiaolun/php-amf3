@@ -141,6 +141,37 @@ static int getHashNumericKeyLen(HashTable *ht) {
 	return len;
 }
 
+static int getHashKeyLen(HashTable *ht) {
+    HashPosition hp;
+    char *key;
+    uint klen;
+    ulong idx;
+    int ktype, len = 0;
+    for (zend_hash_internal_pointer_reset_ex(ht, &hp) ;; zend_hash_move_forward_ex(ht, &hp)) {
+        ktype = zend_hash_get_current_key_ex(ht, &key, &klen, &idx, 0, &hp);
+        switch(ktype) {
+            case HASH_KEY_NON_EXISTANT:
+                return len;
+                break;
+
+            case HASH_KEY_IS_STRING:
+                if (klen <= 1) continue; /* empty key can't be represented in AMF3 */
+                if (!key[0]) continue; /* skip private/protected property */
+                if (key[0] == '_') continue;
+
+
+                ++len;
+                break;
+
+            case HASH_KEY_IS_LONG:
+
+                ++len;
+                break;
+        }
+    }
+    return len;
+}
+
 static void encodeArray(smart_str *ss, zval *val, int opts, HashTable *sht, HashTable *oht, HashTable *tht TSRMLS_DC) {
     HashTable *ht = Z_ARRVAL_P(val);
     HashPosition hp;
@@ -181,16 +212,111 @@ static void encodeArray(smart_str *ss, zval *val, int opts, HashTable *sht, Hash
 static void encodeObject(smart_str *ss, zval *val, int opts, HashTable *sht, HashTable *oht, HashTable *tht TSRMLS_DC) {
 	zend_class_entry *ce = Z_TYPE_P(val) == IS_OBJECT ? Z_OBJCE_P(val) : zend_standard_class_def;
 	int *oidx, nidx;
+    int writeTraits, encoding, traitsInfo, propCount;
+
+    HashPosition hp;
+	zval **hv;
+	char *key, kbuf[22];
+	uint klen;
+	ulong idx;
+    HashTable *ht;
+
 	if (encodeRef(ss, val, oht TSRMLS_CC)) return;
-	if (zend_hash_find(tht, (char *)&ce, sizeof(ce), (void **)&oidx) == SUCCESS) encodeU29(ss, (*oidx << 2) | 1);
-	else {
-		nidx = zend_hash_num_elements(tht);
-		if (nidx <= AMF3_MAX_INT) zend_hash_add(tht, (char *)&ce, sizeof(ce), &nidx, sizeof(nidx), NULL);
-		smart_str_appendc(ss, 0x0b);
-		if (ce == zend_standard_class_def) smart_str_appendc(ss, 0x01); /* anonymous object */
-		else encodeStr(ss, ce->name, ce->name_length, sht TSRMLS_CC); /* typed object */
-	}
-	encodeHash(ss, HASH_OF(val), opts, 1, sht, oht, tht TSRMLS_CC);
+
+    ht = HASH_OF(val);
+
+    writeTraits = 1;
+
+    propCount = 0;
+
+    if(ce == zend_standard_class_def) {
+        encoding = ET_DYNAMIC;
+    } else {
+        encoding = ET_PROPLIST;
+        propCount = getHashKeyLen(ht);
+    }
+
+    if (zend_hash_find(tht, (char *)&ce, sizeof(ce), (void **)&oidx) == SUCCESS) {
+
+        encodeU29(ss, (*oidx << 2) | 1);
+        writeTraits = 0;
+    } else {
+        nidx = zend_hash_num_elements(tht);
+        if (nidx <= AMF3_MAX_INT) {
+            zend_hash_add(tht, (char *)&ce, sizeof(ce), &nidx, sizeof(nidx), NULL);
+        }
+
+        traitsInfo = AMF3_OBJECT_ENCODING;
+        traitsInfo |= encoding << 2;
+        traitsInfo |= propCount << 4;
+
+        encodeU29(ss, traitsInfo);
+    }
+
+    if(writeTraits) {
+
+        if(ce == zend_standard_class_def) {
+            smart_str_appendc(ss, 0x01);
+        } else {
+            encodeStr(ss, ce->name, ce->name_length, sht TSRMLS_CC); /* typed object */
+
+            for (zend_hash_internal_pointer_reset_ex(ht, &hp) ;; zend_hash_move_forward_ex(ht, &hp)) {
+                if (zend_hash_get_current_data_ex(ht, (void **)&hv, &hp) != SUCCESS) break;
+                switch (zend_hash_get_current_key_ex(ht, &key, &klen, &idx, 0, &hp)) {
+                    case HASH_KEY_IS_STRING:
+                        if (klen <= 1) continue; /* empty key can't be represented in AMF3 */
+                        if (!key[0]) continue; /* skip private/protected property */
+                        if (key[0] == '_') continue;
+                        encodeStr(ss, key, klen - 1, sht TSRMLS_CC);
+                        break;
+                    case HASH_KEY_IS_LONG:
+                        encodeStr(ss, kbuf, sprintf(kbuf, "%ld", idx), sht TSRMLS_CC);
+                        break;
+                }
+            }
+
+        }
+    }
+
+    switch(encoding) {
+        case ET_PROPLIST:
+            for (zend_hash_internal_pointer_reset_ex(ht, &hp) ;; zend_hash_move_forward_ex(ht, &hp)) {
+                if (zend_hash_get_current_data_ex(ht, (void **)&hv, &hp) != SUCCESS) break;
+                switch (zend_hash_get_current_key_ex(ht, &key, &klen, &idx, 0, &hp)) {
+                    case HASH_KEY_IS_STRING:
+                        if (klen <= 1) continue; /* empty key can't be represented in AMF3 */
+                        if (!key[0]) continue; /* skip private/protected property */
+                        if (key[0] == '_') continue;
+                        encodeValue(ss, *hv, opts, sht, oht, tht TSRMLS_CC);
+                        break;
+                    case HASH_KEY_IS_LONG:
+                        encodeValue(ss, *hv, opts, sht, oht, tht TSRMLS_CC);
+                        break;
+                }
+            }
+            break;
+
+        case ET_DYNAMIC:
+            for (zend_hash_internal_pointer_reset_ex(ht, &hp) ;; zend_hash_move_forward_ex(ht, &hp)) {
+                if (zend_hash_get_current_data_ex(ht, (void **)&hv, &hp) != SUCCESS) break;
+                switch (zend_hash_get_current_key_ex(ht, &key, &klen, &idx, 0, &hp)) {
+                    case HASH_KEY_IS_STRING:
+                        if (klen <= 1) continue; /* empty key can't be represented in AMF3 */
+                        if (!key[0]) continue; /* skip private/protected property */
+                        if (key[0] == '_') continue;
+                        encodeStr(ss, key, klen - 1, sht TSRMLS_CC);
+                        break;
+                    case HASH_KEY_IS_LONG:
+                        encodeStr(ss, kbuf, sprintf(kbuf, "%ld", idx), sht TSRMLS_CC);
+                        break;
+                }
+                encodeValue(ss, *hv, opts, sht, oht, tht TSRMLS_CC);
+            }
+
+            smart_str_appendc(ss, 0x01);
+            break;
+    }
+
 }
 
 static void encodeValue(smart_str *ss, zval *val, int opts, HashTable *sht, HashTable *oht, HashTable *tht TSRMLS_DC) {

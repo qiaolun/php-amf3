@@ -32,6 +32,12 @@
 #define AMF3_CLASS_AUTOLOAD    0x02
 #define AMF3_CLASS_CONSTRUCT   0x04
 
+#define AMF3_OBJECT_ENCODING   0x03
+
+#define ET_PROPLIST            0x00
+#define ET_EXTERNAL            0x01
+#define ET_DYNAMIC             0x02
+#define ET_PROXY               0x03
 
 #define ZVAL_RESET(A)         \
 	if (!(A)) {               \

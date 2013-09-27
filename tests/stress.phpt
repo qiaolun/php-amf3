@@ -99,16 +99,16 @@ function spawn() {
 // Stress test
 
 for ($i = 0; $i < 1000; ++$i) {
-	$nobj = prob(0.5);
+	$nobj = prob(1);
 	$obj = spawn();
-	$str = amf3_encode($obj, $nobj ? AMF3_FORCE_OBJECT : 0);
+	$str = amf3_encode($obj);
 	$size = strlen($str);
 	$_size;
-	$_obj = amf3_decode($str, $_size, !$nobj ? AMF3_CLASS_MAP : 0);
+	$_obj = amf3_decode($str, $_size);
 	if (($size != $_size) || ($obj != $_obj)) {
-		print(bin2hex($str) . "\n");
-		print(bin2hex(var_export($obj, true)) . "\n");
-		print(bin2hex(var_export($_obj, true)) . "\n");
+		// print(bin2hex($str) . "\n");
+		// print(bin2hex(var_export($obj, true)) . "\n");
+		// print(bin2hex(var_export($_obj, true)) . "\n");
 		die();
 	}
 
