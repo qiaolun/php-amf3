@@ -1,5 +1,5 @@
 --TEST--
-ZendAMF compatibility test class 3, empty object
+ZendAMF compatibility test class 4, empty object
 --SKIPIF--
 <?php
 	if (!extension_loaded('amf3')) die('skip: amf3 extension not available');
