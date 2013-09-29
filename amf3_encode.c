@@ -182,7 +182,14 @@ static void encodeArray(smart_str *ss, zval *val, int opts, HashTable *sht, Hash
     uint klen;
     ulong idx;
 
-    if (encodeRef(ss, val, oht TSRMLS_CC)) return;
+    // if (encodeRef(ss, val, oht TSRMLS_CC)) return;
+    // arrays aren't reference here but still counted
+    int nidx;
+    nidx = zend_hash_num_elements(ht);
+    if (nidx <= AMF3_MAX_INT) {
+        zend_hash_add(oht, (char *)&val, sizeof(val), &nidx, sizeof(nidx), NULL);
+    }
+
     numeric_key_len = getHashNumericKeyLen(ht);
 
     if (numeric_key_len > AMF3_MAX_INT) numeric_key_len = AMF3_MAX_INT;
