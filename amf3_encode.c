@@ -331,7 +331,7 @@ static void encodeValue(smart_str *ss, zval *val, int opts, HashTable *sht, Hash
 			smart_str_appendc(ss, Z_LVAL_P(val) ? AMF3_TRUE : AMF3_FALSE);
 			break;
 		case IS_LONG: {
-			int i = Z_LVAL_P(val);
+			long i = Z_LVAL_P(val);
 			if ((i >= AMF3_MIN_INT) && (i <= AMF3_MAX_INT)) {
 				smart_str_appendc(ss, AMF3_INTEGER);
 				encodeU29(ss, i);
