@@ -71,6 +71,7 @@ static PHP_MINFO_FUNCTION(amf3) {
 	php_info_print_table_start();
 	php_info_print_table_row(2, "AMF3 support", "enabled");
 	php_info_print_table_row(2, "Version", PHP_AMF3_VERSION);
+	php_info_print_table_row(2, "Release", PHP_AMF3_VERSION_MINOR);
 	php_info_print_table_row(2, "Revision", "$Id$");
 	php_info_print_table_end();
 }
