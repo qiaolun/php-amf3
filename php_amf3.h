@@ -8,22 +8,9 @@
 
 
 #define PHP_AMF3_VERSION "1.2.2"
-#define PHP_AMF3_VERSION_MINOR "fpg1"
+#define PHP_AMF3_VERSION_MINOR "ff12"
 
 extern zend_module_entry amf3_module_entry;
 #define phpext_amf3_ptr &amf3_module_entry
-
-#ifdef PHP_WIN32
-#define PHP_AMF3_API __declspec(dllexport)
-#elif defined(__GNUC__) && __GNUC__ >= 4
-#define PHP_AMF3_API __attribute__ ((visibility("default")))
-#else
-#define PHP_AMF3_API
-#endif
-
-#ifdef ZTS
-#include "TSRM.h"
-#endif
-
 
 #endif

@@ -46,9 +46,9 @@ zend_module_entry amf3_module_entry = {
 	"amf3",
 	amf3_functions,
 	PHP_MINIT(amf3),
-	NULL,
-	NULL,
-	NULL,
+	0,
+	0,
+	0,
 	PHP_MINFO(amf3),
 	PHP_AMF3_VERSION,
 	STANDARD_MODULE_PROPERTIES

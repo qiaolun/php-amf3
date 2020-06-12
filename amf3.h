@@ -1,7 +1,7 @@
 /*
-** Copyright (C) 2010, 2013 Arseny Vakhrushev <arseny.vakhrushev at gmail dot com>
-** Please read the LICENSE file for license details
-*/
+ ** Copyright (C) 2010, 2013 Arseny Vakhrushev <arseny.vakhrushev at gmail dot com>
+ ** Please read the LICENSE file for license details
+ */
 
 #ifndef amf3_h
 #define amf3_h
@@ -38,28 +38,6 @@
 #define ET_EXTERNAL            0x01
 #define ET_DYNAMIC             0x02
 #define ET_PROXY               0x03
-
-#define ZVAL_RESET(A)         \
-	if (!(A)) {               \
-		ALLOC_INIT_ZVAL((A)); \
-	} else {                  \
-		zval_dtor((A));       \
-		ZVAL_NULL((A));       \
-	}
-
-/* PHP 5.2, old GC */
-#ifndef Z_ADDREF_P
-#define Z_ADDREF_P(A) ZVAL_ADDREF(A)
-#endif
-#ifndef Z_ADDREF_PP
-#define Z_ADDREF_PP(A) ZVAL_ADDREF(*(A))
-#endif
-#ifndef Z_DELREF_P
-#define Z_DELREF_P(A) ZVAL_DELREF(A)
-#endif
-#ifndef Z_DELREF_PP
-#define Z_DELREF_PP(A) ZVAL_DELREF(*(A))
-#endif
 
 
 #endif
