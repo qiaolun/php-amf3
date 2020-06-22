@@ -248,6 +248,10 @@ static int decodeObject(zval *val, const char *buf, int pos, int size, int opts,
             php_error(E_WARNING, "Invalid class reference %d at position %d", pfx, old);
             return -1;
         }
+        if (!tr->cls) {
+            map = 1;
+        }
+
         if (!map) array_init(val);
         else {
             if (!tr->cls) object_init(val);
