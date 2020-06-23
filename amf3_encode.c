@@ -104,84 +104,76 @@ static void encodeHash(smart_str *ss, HashTable *ht, int opts, int prv, HashTabl
 }
 
 static int getHashNumericKeyLen(HashTable *ht) {
-    HashPosition hp;
+    zval *val;
     zend_string *str_index;
     zend_ulong num_index;
-    int ktype, len = 0;
-    for (zend_hash_internal_pointer_reset_ex(ht, &hp) ;; zend_hash_move_forward_ex(ht, &hp)) {
-        ktype = zend_hash_get_current_key_ex(ht, &str_index, &num_index, &hp);
-        if (ktype == HASH_KEY_NON_EXISTENT) break;
-        if ((ktype != HASH_KEY_IS_LONG)) continue;
+    int len = 0;
+
+    ZEND_HASH_FOREACH_KEY_VAL(ht, num_index, str_index, val) {
+        if (str_index) {
+            continue;
+        }
+
         ++len;
-    }
+    } ZEND_HASH_FOREACH_END();
+
     return len;
 }
 
 static int getHashKeyLen(HashTable *ht) {
-    HashPosition hp;
+    zval *val;
     zend_string *str_index;
     zend_ulong num_index;
-    int ktype, len = 0;
+    int len = 0;
     char *key;
-    for (zend_hash_internal_pointer_reset_ex(ht, &hp) ;; zend_hash_move_forward_ex(ht, &hp)) {
-        ktype = zend_hash_get_current_key_ex(ht, &str_index, &num_index, &hp);
-        switch(ktype) {
-            case HASH_KEY_NON_EXISTENT:
-                return len;
-                break;
 
-            case HASH_KEY_IS_STRING:
-                if (ZSTR_LEN(str_index) <= 0) {
-                    continue; /* empty key can't be represented in AMF3 */
-                }
+    ZEND_HASH_FOREACH_KEY_VAL(ht, num_index, str_index, val) {
+        if (str_index) {
+            if (ZSTR_LEN(str_index) <= 0) {
+                continue; /* empty key can't be represented in AMF3 */
+            }
 
-                key = ZSTR_VAL(str_index);
-                if (!key[0]) {
-                    continue; /* skip private/protected property */
-                }
-                if (key[0] == '_') {
-                    continue;
-                }
+            key = ZSTR_VAL(str_index);
+            if (!key[0]) {
+                continue; /* skip private/protected property */
+            }
 
-                ++len;
-                break;
+            if (key[0] == '_') {
+                continue;
+            }
 
-            case HASH_KEY_IS_LONG:
-
-                ++len;
-                break;
+            ++len;
+        } else {
+            ++len;
         }
-    }
+    } ZEND_HASH_FOREACH_END();
+
     return len;
 }
 
 static void encodeArray(smart_str *ss, zval *val, int opts, HashTable *sht, HashTable *oht, HashTable *tht TSRMLS_DC) {
-    HashTable *ht;
-    HashPosition hp;
-    zval *hv;
+    HashTable *ht = HASH_OF(val);
 
-    int numeric_key_len;
-    int key_type;
+    zval *hv;
     zend_string *str_index;
     zend_ulong num_index;
 
-    if (encodeRef(ss, val, oht TSRMLS_CC)) return;
+    int numeric_key_len;
 
-    ht = HASH_OF(val);
+    // if (encodeRef(ss, val, oht TSRMLS_CC)) return;
+    //int nidx;
+    //nidx = zend_hash_num_elements(ht);
+    //if (nidx <= AMF3_MAX_INT) {
+    //    zend_hash_add_mem(oht, Z_STR_P(val), &nidx, sizeof(nidx));
+    //}
 
     numeric_key_len = getHashNumericKeyLen(ht);
 
     if (numeric_key_len > AMF3_MAX_INT) numeric_key_len = AMF3_MAX_INT;
     encodeU29(ss, (numeric_key_len << 1) | 1);
 
-    for (zend_hash_internal_pointer_reset_ex(ht, &hp) ;; zend_hash_move_forward_ex(ht, &hp)) {
-        hv = zend_hash_get_current_data_ex(ht, &hp);
-        if (hv == NULL) {
-            break;
-        }
-
-        key_type = zend_hash_get_current_key_ex(ht, &str_index, &num_index, &hp);
-        if(key_type == HASH_KEY_IS_STRING ) {
+    ZEND_HASH_FOREACH_KEY_VAL(ht, num_index, str_index, hv) {
+        if(str_index) {
             if (ZSTR_LEN(str_index) <= 0) {
                 continue; /* empty key can't be represented in AMF3 */
             }
@@ -189,32 +181,27 @@ static void encodeArray(smart_str *ss, zval *val, int opts, HashTable *sht, Hash
             encodeStr(ss, ZSTR_VAL(str_index), ZSTR_LEN(str_index), sht TSRMLS_CC);
             encodeValue(ss, hv, opts, sht, oht, tht TSRMLS_CC);
         }
-    }
+    } ZEND_HASH_FOREACH_END();
 
     smart_str_appendc(ss, 0x01);
 
-    for (zend_hash_internal_pointer_reset_ex(ht, &hp) ;; zend_hash_move_forward_ex(ht, &hp)) {
-        hv = zend_hash_get_current_data_ex(ht, &hp);
-        if (hv == NULL) {
-            break;
+    ZEND_HASH_FOREACH_KEY_VAL(ht, num_index, str_index, hv) {
+        if(str_index) {
+            continue;
         }
 
-        key_type = zend_hash_get_current_key_ex(ht, &str_index, &num_index, &hp);
-        if(key_type == HASH_KEY_IS_LONG ) {
-            encodeValue(ss, hv, opts, sht, oht, tht TSRMLS_CC);
-        }
-    }
+        encodeValue(ss, hv, opts, sht, oht, tht TSRMLS_CC);
+    } ZEND_HASH_FOREACH_END();
 }
 
 static void encodeObject(smart_str *ss, zval *val, int opts, HashTable *sht, HashTable *oht, HashTable *tht TSRMLS_DC) {
     HashTable *ht;
-    HashPosition hp;
-    zval *hv;
 
-    int numeric_key_len;
-    int key_type;
+    zval *hv;
     zend_string *str_index;
     zend_ulong num_index;
+
+    int numeric_key_len;
 
     zend_class_entry *ce = Z_TYPE_P(val) == IS_OBJECT ? Z_OBJCE_P(val) : zend_standard_class_def;
 
@@ -261,98 +248,71 @@ static void encodeObject(smart_str *ss, zval *val, int opts, HashTable *sht, Has
         } else {
             encodeStr(ss, ZSTR_VAL(ce->name), ZSTR_LEN(ce->name), sht TSRMLS_CC); /* typed object */
 
-            for (zend_hash_internal_pointer_reset_ex(ht, &hp) ;; zend_hash_move_forward_ex(ht, &hp)) {
-                hv = zend_hash_get_current_data_ex(ht, &hp);
-                if (hv == NULL) {
-                    break;
+            ZEND_HASH_FOREACH_KEY_VAL(ht, num_index, str_index, hv) {
+                if (str_index) {
+                    if (ZSTR_LEN(str_index) <= 0) {
+                        continue; /* empty key can't be represented in AMF3 */
+                    }
+                    key = ZSTR_VAL(str_index);
+                    if (!key[0]) {
+                        continue; /* skip private/protected property */
+                    }
+                    if (key[0] == '_') {
+                        continue;
+                    }
+                    encodeStr(ss, ZSTR_VAL(str_index), ZSTR_LEN(str_index), sht TSRMLS_CC);
+                } else {
+                    encodeStr(ss, kbuf, sprintf(kbuf, "%ld", num_index), sht TSRMLS_CC);
                 }
-
-                key_type = zend_hash_get_current_key_ex(ht, &str_index, &num_index, &hp);
-                switch (key_type) {
-                    case HASH_KEY_IS_STRING:
-                        if (ZSTR_LEN(str_index) <= 0) {
-                            continue; /* empty key can't be represented in AMF3 */
-                        }
-                        key = ZSTR_VAL(str_index);
-                        if (!key[0]) {
-                            continue; /* skip private/protected property */
-                        }
-                        if (key[0] == '_') {
-                            continue;
-                        }
-                        encodeStr(ss, ZSTR_VAL(str_index), ZSTR_LEN(str_index), sht TSRMLS_CC);
-                        break;
-                    case HASH_KEY_IS_LONG:
-                        encodeStr(ss, kbuf, sprintf(kbuf, "%ld", num_index), sht TSRMLS_CC);
-                        break;
-                }
-            }
+            } ZEND_HASH_FOREACH_END();
 
         }
     }
 
     switch(encoding) {
         case ET_PROPLIST:
-            for (zend_hash_internal_pointer_reset_ex(ht, &hp) ;; zend_hash_move_forward_ex(ht, &hp)) {
-                hv = zend_hash_get_current_data_ex(ht, &hp);
-                if (hv == NULL) {
-                    break;
+            ZEND_HASH_FOREACH_KEY_VAL(ht, num_index, str_index, hv) {
+                if (str_index) {
+                    if (ZSTR_LEN(str_index) <= 0) {
+                        continue; /* empty key can't be represented in AMF3 */
+                    }
+                    key = ZSTR_VAL(str_index);
+
+                    if (!key[0]) {
+                        continue; /* skip private/protected property */
+                    }
+                    if (key[0] == '_') {
+                        continue;
+                    }
+
+                    encodeValue(ss, hv, opts, sht, oht, tht TSRMLS_CC);
+                } else {
+                    encodeValue(ss, hv, opts, sht, oht, tht TSRMLS_CC);
                 }
-
-                key_type = zend_hash_get_current_key_ex(ht, &str_index, &num_index, &hp);
-                switch (key_type) {
-                    case HASH_KEY_IS_STRING:
-                        if (ZSTR_LEN(str_index) <= 0) {
-                            continue; /* empty key can't be represented in AMF3 */
-                        }
-                        key = ZSTR_VAL(str_index);
-
-                        if (!key[0]) {
-                            continue; /* skip private/protected property */
-                        }
-                        if (key[0] == '_') {
-                            continue;
-                        }
-
-                        encodeValue(ss, hv, opts, sht, oht, tht TSRMLS_CC);
-                        break;
-                    case HASH_KEY_IS_LONG:
-                        encodeValue(ss, hv, opts, sht, oht, tht TSRMLS_CC);
-                        break;
-                }
-            }
+            } ZEND_HASH_FOREACH_END();
             break;
 
         case ET_DYNAMIC:
-            for (zend_hash_internal_pointer_reset_ex(ht, &hp) ;; zend_hash_move_forward_ex(ht, &hp)) {
-                hv = zend_hash_get_current_data_ex(ht, &hp);
-                if (hv == NULL) {
-                    break;
-                }
+            ZEND_HASH_FOREACH_KEY_VAL(ht, num_index, str_index, hv) {
+                if (str_index) {
+                    if (ZSTR_LEN(str_index) <= 0) {
+                        continue; /* empty key can't be represented in AMF3 */
+                    }
+                    key = ZSTR_VAL(str_index);
 
-                key_type = zend_hash_get_current_key_ex(ht, &str_index, &num_index, &hp);
-                switch (key_type) {
-                    case HASH_KEY_IS_STRING:
-                        if (ZSTR_LEN(str_index) <= 0) {
-                            continue; /* empty key can't be represented in AMF3 */
-                        }
-                        key = ZSTR_VAL(str_index);
+                    if (!key[0]) {
+                        continue; /* skip private/protected property */
+                    }
+                    if (key[0] == '_') {
+                        continue;
+                    }
 
-                        if (!key[0]) {
-                            continue; /* skip private/protected property */
-                        }
-                        if (key[0] == '_') {
-                            continue;
-                        }
-
-                        encodeStr(ss, ZSTR_VAL(str_index), ZSTR_LEN(str_index), sht TSRMLS_CC);
-                        break;
-                    case HASH_KEY_IS_LONG:
-                        encodeStr(ss, kbuf, sprintf(kbuf, "%ld", num_index), sht TSRMLS_CC);
-                        break;
+                    encodeStr(ss, ZSTR_VAL(str_index), ZSTR_LEN(str_index), sht TSRMLS_CC);
+                } else {
+                    encodeStr(ss, kbuf, sprintf(kbuf, "%ld", num_index), sht TSRMLS_CC);
                 }
                 encodeValue(ss, hv, opts, sht, oht, tht TSRMLS_CC);
-            }
+            } ZEND_HASH_FOREACH_END();
 
             smart_str_appendc(ss, 0x01);
             break;
@@ -403,6 +363,9 @@ static void encodeValue(smart_str *ss, zval *val, int opts, HashTable *sht, Hash
         case IS_OBJECT:
             smart_str_appendc(ss, AMF3_OBJECT);
             encodeObject(ss, val, opts, sht, oht, tht TSRMLS_CC);
+            break;
+        case IS_REFERENCE:
+            encodeValue(ss, Z_REFVAL_P(val), opts, sht, oht, tht TSRMLS_CC);
             break;
     }
 }
