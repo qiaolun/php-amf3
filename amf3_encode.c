@@ -10,6 +10,7 @@
 #include "php.h"
 #include "php_amf3.h"
 #include "zend_smart_str.h"
+#include "ext/spl/php_spl.h"
 #include "amf3.h"
 
 
@@ -61,7 +62,7 @@ static void encodeDouble(smart_str *ss, double val) {
     smart_str_appendl(ss, buf, 8);
 }
 
-static int encodeRefEx(smart_str *ss, const char *str, size_t len, HashTable *ht TSRMLS_DC) {
+static int encodeRefStr(smart_str *ss, const char *str, size_t len, HashTable *ht TSRMLS_DC) {
     int *oidx, nidx;
     if ((oidx = zend_hash_str_find_ptr(ht, str, len))) {
         encodeU29(ss, *oidx << 1);
@@ -72,13 +73,24 @@ static int encodeRefEx(smart_str *ss, const char *str, size_t len, HashTable *ht
     return 0;
 }
 
-static int encodeRef(smart_str *ss, void *ptr, HashTable *ht TSRMLS_DC) {
-    return encodeRefEx(ss, (char *)&ptr, sizeof(ptr), ht TSRMLS_CC);
+static int encodeRefObj(smart_str *ss, zval *val, HashTable *ht TSRMLS_DC) {
+    int *oidx, nidx;
+	zend_string* objectHash;
+
+    objectHash = php_spl_object_hash(val);
+    if ((oidx = zend_hash_str_find_ptr(ht, ZSTR_VAL(objectHash), ZSTR_LEN(objectHash)))) {
+        encodeU29(ss, *oidx << 1);
+        return 1;
+    }
+
+    nidx = zend_hash_num_elements(ht);
+    if (nidx <= AMF3_MAX_INT) zend_hash_str_add_mem(ht, ZSTR_VAL(objectHash), ZSTR_LEN(objectHash), &nidx, sizeof(nidx));
+    return 0;
 }
 
 static void encodeStr(smart_str *ss, const char *str, size_t len, HashTable *ht TSRMLS_DC) {
     if (len > AMF3_MAX_INT) len = AMF3_MAX_INT;
-    if (len && encodeRefEx(ss, str, len, ht TSRMLS_CC)) return; /* Empty string is never sent by reference */
+    if (len && encodeRefStr(ss, str, len, ht TSRMLS_CC)) return; /* Empty string is never sent by reference */
     encodeU29(ss, (len << 1) | 1);
     smart_str_appendl(ss, str, len);
 }
@@ -157,18 +169,13 @@ static void encodeArray(smart_str *ss, zval *val, int opts, HashTable *sht, Hash
     zval *hv;
     zend_string *str_index;
     zend_ulong num_index;
-
     int numeric_key_len;
+    int nidx;
 
-    // if (encodeRef(ss, val, oht TSRMLS_CC)) return;
-    //int nidx;
-    //nidx = zend_hash_num_elements(ht);
-    //if (nidx <= AMF3_MAX_INT) {
-    //    zend_hash_add_mem(oht, Z_STR_P(val), &nidx, sizeof(nidx));
-    //}
+    nidx = zend_hash_num_elements(ht);
+    if (nidx <= AMF3_MAX_INT) zend_hash_next_index_insert_mem(oht, &nidx, sizeof(nidx));
 
     numeric_key_len = getHashNumericKeyLen(ht);
-
     if (numeric_key_len > AMF3_MAX_INT) numeric_key_len = AMF3_MAX_INT;
     encodeU29(ss, (numeric_key_len << 1) | 1);
 
@@ -210,7 +217,7 @@ static void encodeObject(smart_str *ss, zval *val, int opts, HashTable *sht, Has
 
     char *key, kbuf[22];
 
-    if (encodeRef(ss, val, oht TSRMLS_CC)) return;
+    if (encodeRefObj(ss, val, oht TSRMLS_CC)) return;
 
     ht = HASH_OF(val);
 
