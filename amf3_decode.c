@@ -150,12 +150,14 @@ static int decodeDate(zval *val, const char *buf, int pos, int size, HashTable *
 static zval *newIdx(zval *val) {
     zval hv;
     ZVAL_UNDEF(&hv);
+    HT_ALLOW_COW_VIOLATION(HASH_OF(val));
     return zend_hash_next_index_insert(HASH_OF(val), &hv);
 }
 
 static zval *newKey(zval *val, const char *key, int len) {
     zval hv;
     ZVAL_UNDEF(&hv);
+    HT_ALLOW_COW_VIOLATION(HASH_OF(val));
     return zend_symtable_str_update(HASH_OF(val), key, len, &hv);
 }
 
@@ -294,6 +296,7 @@ static int decodeObject(zval *val, const char *buf, int pos, int size, int opts,
                 }
             }
         }
+        HT_ALLOW_COW_VIOLATION(HASH_OF(val));
         if (!map && tr->cls) add_assoc_stringl(val, "_class", ZSTR_VAL(tr->cls), ZSTR_LEN(tr->cls));
         else if (ce && (opts & AMF3_CLASS_CONSTRUCT)) { /* call the constructor */
             zend_call_method_with_0_params(val, ce, &ce->constructor, NULL, NULL);

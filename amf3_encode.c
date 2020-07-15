@@ -79,12 +79,14 @@ static int encodeRefObj(smart_str *ss, zval *val, HashTable *ht TSRMLS_DC) {
 
     objectHash = php_spl_object_hash(val);
     if ((oidx = zend_hash_str_find_ptr(ht, ZSTR_VAL(objectHash), ZSTR_LEN(objectHash)))) {
+        zend_string_release(objectHash);
         encodeU29(ss, *oidx << 1);
         return 1;
     }
 
     nidx = zend_hash_num_elements(ht);
     if (nidx <= AMF3_MAX_INT) zend_hash_str_add_mem(ht, ZSTR_VAL(objectHash), ZSTR_LEN(objectHash), &nidx, sizeof(nidx));
+    zend_string_release(objectHash);
     return 0;
 }
 
