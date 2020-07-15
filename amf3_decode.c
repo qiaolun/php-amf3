@@ -128,7 +128,8 @@ static int decodeRef(int *len, zval *val, const char *buf, int pos, int size, Ha
             return -1;
         }
         *len = -1;
-        ZVAL_COPY(val, hv);
+        ZVAL_COPY_OR_DUP(val, hv);
+        SEPARATE_ZVAL(val);
     }
     return ofs;
 }
