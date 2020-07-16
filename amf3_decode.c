@@ -27,9 +27,9 @@ static void storeRef(zval *val, HashTable *ht) {
     zend_hash_next_index_insert(ht, &hv);
 }
 
-static int decodeValue(zval *val, const char *buf, int pos, int size, int opts, HashTable *sht, HashTable *oht, HashTable *tht TSRMLS_DC);
+static int decodeValue(zval *val, const char *buf, int pos, int size, int opts, HashTable *sht, HashTable *oht, HashTable *tht);
 
-static int decodeU29(int *val, const char *buf, int pos, int size TSRMLS_DC) {
+static int decodeU29(int *val, const char *buf, int pos, int size) {
     int ofs = 0, res = 0, tmp;
     buf += pos;
     do {
@@ -50,7 +50,7 @@ static int decodeU29(int *val, const char *buf, int pos, int size TSRMLS_DC) {
     return ofs;
 }
 
-static int decodeDouble(zval *val, const char *buf, int pos, int size TSRMLS_DC) {
+static int decodeDouble(zval *val, const char *buf, int pos, int size) {
     union { int i; char c; } t;
     union { double d; char c[8]; } u;
     if ((pos + 8) > size) {
@@ -68,9 +68,9 @@ static int decodeDouble(zval *val, const char *buf, int pos, int size TSRMLS_DC)
     return 8;
 }
 
-static int decodeStr(const char **str, int *len, zval *val, const char *buf, int pos, int size, int loose, HashTable *ht TSRMLS_DC) {
+static int decodeStr(const char **str, int *len, zval *val, const char *buf, int pos, int size, int loose, HashTable *ht) {
     int old = pos, ofs, pfx, def;
-    ofs = decodeU29(&pfx, buf, pos, size TSRMLS_CC);
+    ofs = decodeU29(&pfx, buf, pos, size);
     if (ofs < 0) return -1;
     pos += ofs;
     def = pfx & 1;
@@ -113,9 +113,9 @@ static int decodeStr(const char **str, int *len, zval *val, const char *buf, int
     return pos - old;
 }
 
-static int decodeRef(int *len, zval *val, const char *buf, int pos, int size, HashTable *ht TSRMLS_DC) {
+static int decodeRef(int *len, zval *val, const char *buf, int pos, int size, HashTable *ht) {
     int ofs, pfx, def;
-    ofs = decodeU29(&pfx, buf, pos, size TSRMLS_CC);
+    ofs = decodeU29(&pfx, buf, pos, size);
     if (ofs < 0) return -1;
     pos += ofs;
     def = pfx & 1;
@@ -134,13 +134,13 @@ static int decodeRef(int *len, zval *val, const char *buf, int pos, int size, Ha
     return ofs;
 }
 
-static int decodeDate(zval *val, const char *buf, int pos, int size, HashTable *ht TSRMLS_DC) {
+static int decodeDate(zval *val, const char *buf, int pos, int size, HashTable *ht) {
     int old = pos, ofs, pfx;
-    ofs = decodeRef(&pfx, val, buf, pos, size, ht TSRMLS_CC);
+    ofs = decodeRef(&pfx, val, buf, pos, size, ht);
     if (ofs < 0) return -1;
     pos += ofs;
     if (pfx >= 0) {
-        ofs = decodeDouble(val, buf, pos, size TSRMLS_CC);
+        ofs = decodeDouble(val, buf, pos, size);
         if (ofs < 0) return -1;
         pos += ofs;
         storeRef(val, ht);
@@ -162,9 +162,9 @@ static zval *newKey(zval *val, const char *key, int len) {
     return zend_symtable_str_update(HASH_OF(val), key, len, &hv);
 }
 
-static int decodeArray(zval *val, const char *buf, int pos, int size, int opts, HashTable *sht, HashTable *oht, HashTable *tht TSRMLS_DC) {
+static int decodeArray(zval *val, const char *buf, int pos, int size, int opts, HashTable *sht, HashTable *oht, HashTable *tht) {
     int old = pos, ofs, len;
-    ofs = decodeRef(&len, val, buf, pos, size, oht TSRMLS_CC);
+    ofs = decodeRef(&len, val, buf, pos, size, oht);
     if (ofs < 0) return -1;
     pos += ofs;
     if (len >= 0) {
@@ -173,16 +173,16 @@ static int decodeArray(zval *val, const char *buf, int pos, int size, int opts, 
         array_init(val);
         storeRef(val, oht);
         for ( ;; ) { /* associative portion */
-            ofs = decodeStr(&key, &klen, 0, buf, pos, size, 0, sht TSRMLS_CC);
+            ofs = decodeStr(&key, &klen, 0, buf, pos, size, 0, sht);
             if (ofs < 0) return -1;
             pos += ofs;
             if (!klen) break;
-            ofs = decodeValue(newKey(val, key, klen), buf, pos, size, opts, sht, oht, tht TSRMLS_CC);
+            ofs = decodeValue(newKey(val, key, klen), buf, pos, size, opts, sht, oht, tht);
             if (ofs < 0) return -1;
             pos += ofs;
         }
         while (len--) { /* dense portion */
-            ofs = decodeValue(newIdx(val), buf, pos, size, opts, sht, oht, tht TSRMLS_CC);
+            ofs = decodeValue(newIdx(val), buf, pos, size, opts, sht, oht, tht);
             if (ofs < 0) return -1;
             pos += ofs;
         }
@@ -190,9 +190,9 @@ static int decodeArray(zval *val, const char *buf, int pos, int size, int opts, 
     return pos - old;
 }
 
-static int decodeObject(zval *val, const char *buf, int pos, int size, int opts, HashTable *sht, HashTable *oht, HashTable *tht TSRMLS_DC) {
+static int decodeObject(zval *val, const char *buf, int pos, int size, int opts, HashTable *sht, HashTable *oht, HashTable *tht) {
     int old = pos, ofs, pfx;
-    ofs = decodeRef(&pfx, val, buf, pos, size, oht TSRMLS_CC);
+    ofs = decodeRef(&pfx, val, buf, pos, size, oht);
     if (ofs < 0) return -1;
     pos += ofs;
     if (pfx >= 0) {
@@ -209,7 +209,7 @@ static int decodeObject(zval *val, const char *buf, int pos, int size, int opts,
             int clen;
             const char **fld = 0;
             int *flen = 0;
-            ofs = decodeStr(&cls, &clen, 0, buf, pos, size, 0, sht TSRMLS_CC);
+            ofs = decodeStr(&cls, &clen, 0, buf, pos, size, 0, sht);
             if (ofs < 0) return -1;
             pos += ofs;
             if (n > 0) {
@@ -220,7 +220,7 @@ static int decodeObject(zval *val, const char *buf, int pos, int size, int opts,
                 fld = emalloc(n * sizeof *fld);
                 flen = emalloc(n * sizeof *flen);
                 for (i = 0; i < n; ++i) { /* static member names */
-                    ofs = decodeStr(&key, &klen, 0, buf, pos, size, 0, sht TSRMLS_CC);
+                    ofs = decodeStr(&key, &klen, 0, buf, pos, size, 0, sht);
                     if (ofs < 0) {
                         n = -1;
                         break;
@@ -261,7 +261,7 @@ static int decodeObject(zval *val, const char *buf, int pos, int size, int opts,
             else {
                 int mode = ZEND_FETCH_CLASS_DEFAULT | ZEND_FETCH_CLASS_SILENT;
                 if (!(opts & AMF3_CLASS_AUTOLOAD)) mode |= ZEND_FETCH_CLASS_NO_AUTOLOAD;
-                ce = zend_fetch_class(tr->cls, mode TSRMLS_CC);
+                ce = zend_fetch_class(tr->cls, mode);
                 if (!ce) {
                     php_error(E_WARNING, "Class '%s' not found at position %d", ZSTR_VAL(tr->cls), old);
                     return -1;
@@ -271,19 +271,19 @@ static int decodeObject(zval *val, const char *buf, int pos, int size, int opts,
         }
         storeRef(val, oht);
         if (tr->fmt & 1) { /* externalizable */
-            ofs = decodeValue(newKey(val, "_data", sizeof("_data")), buf, pos, size, opts, sht, oht, tht TSRMLS_CC);
+            ofs = decodeValue(newKey(val, "_data", sizeof("_data")), buf, pos, size, opts, sht, oht, tht);
             if (ofs < 0) return -1;
             pos += ofs;
         } else {
             int i;
             for (i = 0; i < tr->cnt; ++i) {
-                ofs = decodeValue(newKey(val, tr->fld[i], tr->flen[i]), buf, pos, size, opts, sht, oht, tht TSRMLS_CC);
+                ofs = decodeValue(newKey(val, tr->fld[i], tr->flen[i]), buf, pos, size, opts, sht, oht, tht);
                 if (ofs < 0) return -1;
                 pos += ofs;
             }
             if (tr->fmt & 2) { /* dynamic */
                 for ( ;; ) {
-                    ofs = decodeStr(&key, &klen, 0, buf, pos, size, 0, sht TSRMLS_CC);
+                    ofs = decodeStr(&key, &klen, 0, buf, pos, size, 0, sht);
                     if (ofs < 0) return -1;
                     pos += ofs;
                     if (!klen) break;
@@ -291,7 +291,7 @@ static int decodeObject(zval *val, const char *buf, int pos, int size, int opts,
                         php_error(E_WARNING, "Inappropriate class member name at position %d", pos);
                         return -1;
                     }
-                    ofs = decodeValue(newKey(val, key, klen), buf, pos, size, opts, sht, oht, tht TSRMLS_CC);
+                    ofs = decodeValue(newKey(val, key, klen), buf, pos, size, opts, sht, oht, tht);
                     if (ofs < 0) return -1;
                     pos += ofs;
                 }
@@ -307,7 +307,7 @@ static int decodeObject(zval *val, const char *buf, int pos, int size, int opts,
     return pos - old;
 }
 
-static int decodeValue(zval *val, const char *buf, int pos, int size, int opts, HashTable *sht, HashTable *oht, HashTable *tht TSRMLS_DC) {
+static int decodeValue(zval *val, const char *buf, int pos, int size, int opts, HashTable *sht, HashTable *oht, HashTable *tht) {
     int old = pos, ofs;
     if (pos >= size) {
         php_error(E_WARNING, "Insufficient type data at position %d", pos);
@@ -327,7 +327,7 @@ static int decodeValue(zval *val, const char *buf, int pos, int size, int opts, 
         case AMF3_INTEGER:
             {
                 int i;
-                ofs = decodeU29(&i, buf, pos, size TSRMLS_CC);
+                ofs = decodeU29(&i, buf, pos, size);
                 if (ofs < 0) return -1;
                 pos += ofs;
                 if (i & 0x10000000) i -= 0x20000000;
@@ -335,34 +335,34 @@ static int decodeValue(zval *val, const char *buf, int pos, int size, int opts, 
                 break;
             }
         case AMF3_DOUBLE:
-            ofs = decodeDouble(val, buf, pos, size TSRMLS_CC);
+            ofs = decodeDouble(val, buf, pos, size);
             if (ofs < 0) return -1;
             pos += ofs;
             break;
         case AMF3_STRING:
-            ofs = decodeStr(0, 0, val, buf, pos, size, 0, sht TSRMLS_CC);
+            ofs = decodeStr(0, 0, val, buf, pos, size, 0, sht);
             if (ofs < 0) return -1;
             pos += ofs;
             break;
         case AMF3_XML:
         case AMF3_XMLDOC:
         case AMF3_BYTEARRAY:
-            ofs = decodeStr(0, 0, val, buf, pos, size, 1, oht TSRMLS_CC);
+            ofs = decodeStr(0, 0, val, buf, pos, size, 1, oht);
             if (ofs < 0) return -1;
             pos += ofs;
             break;
         case AMF3_DATE:
-            ofs = decodeDate(val, buf, pos, size, oht TSRMLS_CC);
+            ofs = decodeDate(val, buf, pos, size, oht);
             if (ofs < 0) return -1;
             pos += ofs;
             break;
         case AMF3_ARRAY:
-            ofs = decodeArray(val, buf, pos, size, opts, sht, oht, tht TSRMLS_CC);
+            ofs = decodeArray(val, buf, pos, size, opts, sht, oht, tht);
             if (ofs < 0) return -1;
             pos += ofs;
             break;
         case AMF3_OBJECT:
-            ofs = decodeObject(val, buf, pos, size, opts, sht, oht, tht TSRMLS_CC);
+            ofs = decodeObject(val, buf, pos, size, opts, sht, oht, tht);
             if (ofs < 0) return -1;
             pos += ofs;
             break;
@@ -388,11 +388,11 @@ PHP_FUNCTION(amf3_decode) {
     long opts = 0;
     HashTable sht, oht, tht;
     int ofs;
-    if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "s|z/l", &buf, &size, &count, &opts) == FAILURE) return;
+    if (zend_parse_parameters(ZEND_NUM_ARGS(), "s|z/l", &buf, &size, &count, &opts) == FAILURE) return;
     zend_hash_init(&sht, 0, 0, ZVAL_PTR_DTOR, 0);
     zend_hash_init(&oht, 0, 0, ZVAL_PTR_DTOR, 0);
     zend_hash_init(&tht, 0, 0, freeTraits, 0);
-    ofs = decodeValue(return_value, buf, 0, size, opts, &sht, &oht, &tht TSRMLS_CC);
+    ofs = decodeValue(return_value, buf, 0, size, opts, &sht, &oht, &tht);
     zend_hash_destroy(&sht);
     zend_hash_destroy(&oht);
     zend_hash_destroy(&tht);
