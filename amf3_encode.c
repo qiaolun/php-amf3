@@ -14,6 +14,12 @@
 #include "amf3.h"
 
 
+typedef struct _amf_ref_class_def {
+    uint32_t id;
+    char encoding;
+    HashTable *property_names;
+} amf_ref_class_def;
+
 static void encodeValue(smart_str *ss, zval *val, int opts, HashTable *sht, HashTable *oht, HashTable *tht);
 
 static void encodeU29(smart_str *ss, int val) {
@@ -139,7 +145,6 @@ static int getHashKeyLen(HashTable *ht) {
     zend_string *str_index;
     zend_ulong num_index;
     int len = 0;
-    char *key;
 
     ZEND_HASH_FOREACH_KEY_VAL(ht, num_index, str_index, val) {
         if (str_index) {
@@ -147,12 +152,11 @@ static int getHashKeyLen(HashTable *ht) {
                 continue; /* empty key can't be represented in AMF3 */
             }
 
-            key = ZSTR_VAL(str_index);
-            if (!key[0]) {
+            if (!(ZSTR_VAL(str_index)[0])) {
                 continue; /* skip private/protected property */
             }
 
-            if (key[0] == '_') {
+            if (ZSTR_VAL(str_index)[0] == '_') {
                 continue;
             }
 
@@ -205,46 +209,83 @@ static void encodeArray(smart_str *ss, zval *val, int opts, HashTable *sht, Hash
 
 static void encodeObject(smart_str *ss, zval *val, int opts, HashTable *sht, HashTable *oht, HashTable *tht) {
     HashTable *ht;
-
     zval *hv;
     zend_string *str_index;
     zend_ulong num_index;
-
-    int numeric_key_len;
+    int nidx;
+    int writeTraits, traitsInfo;
+    char kbuf[22];
+    amf_ref_class_def *class_def;
 
     zend_class_entry *ce = Z_TYPE_P(val) == IS_OBJECT ? Z_OBJCE_P(val) : zend_standard_class_def;
 
-    int *oidx, nidx;
-    int writeTraits, encoding, traitsInfo, propCount;
-
-    char *key, kbuf[22];
-
     if (encodeRefObj(ss, val, oht)) return;
 
-    ht = HASH_OF(val);
-
-    writeTraits = 1;
-
-    propCount = 0;
-
-    if(ce == zend_standard_class_def) {
-        encoding = ET_DYNAMIC;
-    } else {
-        encoding = ET_PROPLIST;
-        propCount = getHashKeyLen(ht);
+    ht = Z_OBJ_HT_P(val)->get_properties(val);
+    if (ht == NULL) {
+        php_error_docref(NULL, E_WARNING, "invalid properties");
+        return;
     }
 
-    if ((oidx = zend_hash_str_find_ptr(tht, (char *)&ce, sizeof(ce)))) {
-        encodeU29(ss, (*oidx << 2) | 1);
+    if ((class_def = zend_hash_str_find_ptr(tht, (char *)&ce, sizeof(ce))) != NULL) {
+        encodeU29(ss, (class_def->id << 2) | 1);
         writeTraits = 0;
     } else {
+        writeTraits = 1;
+
+        uint32_t propCount = 0;
+
         nidx = zend_hash_num_elements(tht);
-        if (nidx <= AMF3_MAX_INT) {
-            zend_hash_str_add_mem(tht, (char *)&ce, sizeof(ce), &nidx, sizeof(nidx));
+
+        if (nidx > AMF3_MAX_INT) {
+            return;
         }
 
+        class_def = emalloc(sizeof(amf_ref_class_def));
+        class_def->id = nidx;
+
+        if(ce == zend_standard_class_def) {
+            class_def->encoding = ET_DYNAMIC;
+            class_def->property_names = NULL;
+        } else {
+            class_def->encoding = ET_PROPLIST;
+            class_def->property_names = zend_new_array(zend_hash_num_elements(ht));
+
+            ZEND_HASH_FOREACH_KEY_VAL(ht, num_index, str_index, hv) {
+                zend_bool is_dynamic = 1;
+                if (Z_TYPE_P(hv) == IS_INDIRECT) {
+                    hv = Z_INDIRECT_P(hv);
+                    if (UNEXPECTED(Z_ISUNDEF_P(hv))) {
+                        continue;
+                    }
+
+                    is_dynamic = 0;
+                }
+
+                if (str_index && zend_check_property_access(Z_OBJ_P(val), str_index, is_dynamic) == FAILURE) {
+                    continue;
+                }
+
+                if (str_index) {
+                    if (ZSTR_LEN(str_index) <= 0) {
+                        continue;
+                    }
+                    if (ZSTR_VAL(str_index)[0] == '_') {
+                        continue;
+                    }
+                    zend_hash_add_empty_element(class_def->property_names, str_index);
+                } else {
+                    php_error_docref(NULL, E_WARNING, "num property");
+                }
+            } ZEND_HASH_FOREACH_END();
+
+            propCount = zend_hash_num_elements(class_def->property_names);
+        }
+
+        zend_hash_str_add_ptr(tht, (char *)&ce, sizeof(ce), class_def);
+
         traitsInfo = AMF3_OBJECT_ENCODING;
-        traitsInfo |= encoding << 2;
+        traitsInfo |= class_def->encoding << 2;
         traitsInfo |= propCount << 4;
 
         encodeU29(ss, traitsInfo);
@@ -257,41 +298,18 @@ static void encodeObject(smart_str *ss, zval *val, int opts, HashTable *sht, Has
         } else {
             encodeStr(ss, ZSTR_VAL(ce->name), ZSTR_LEN(ce->name), sht); /* typed object */
 
-            ZEND_HASH_FOREACH_KEY_VAL(ht, num_index, str_index, hv) {
-                if (str_index) {
-                    if (ZSTR_LEN(str_index) <= 0) {
-                        continue; /* empty key can't be represented in AMF3 */
-                    }
-                    key = ZSTR_VAL(str_index);
-                    if (!key[0]) {
-                        continue; /* skip private/protected property */
-                    }
-                    if (key[0] == '_') {
-                        continue;
-                    }
-                    encodeStr(ss, ZSTR_VAL(str_index), ZSTR_LEN(str_index), sht);
-                } else {
-                    encodeStr(ss, kbuf, sprintf(kbuf, "%ld", num_index), sht);
-                }
+            ZEND_HASH_FOREACH_STR_KEY(class_def->property_names, str_index) {
+                encodeStr(ss, ZSTR_VAL(str_index), ZSTR_LEN(str_index), sht);
             } ZEND_HASH_FOREACH_END();
-
         }
     }
 
-    switch(encoding) {
+    switch(class_def->encoding) {
         case ET_PROPLIST:
-            ZEND_HASH_FOREACH_KEY_VAL(ht, num_index, str_index, hv) {
-                if (str_index) {
-                    if (ZSTR_LEN(str_index) <= 0) {
-                        continue; /* empty key can't be represented in AMF3 */
-                    }
-                    key = ZSTR_VAL(str_index);
-                    if (!key[0]) {
-                        continue; /* skip private/protected property */
-                    }
-                    if (key[0] == '_') {
-                        continue;
-                    }
+            ZEND_HASH_FOREACH_STR_KEY(class_def->property_names, str_index) {
+                hv = zend_hash_find(ht, str_index);
+                if (hv == NULL) {
+                    ZVAL_NULL(hv);
                 }
                 encodeValue(ss, hv, opts, sht, oht, tht);
             } ZEND_HASH_FOREACH_END();
@@ -303,15 +321,12 @@ static void encodeObject(smart_str *ss, zval *val, int opts, HashTable *sht, Has
                     if (ZSTR_LEN(str_index) <= 0) {
                         continue; /* empty key can't be represented in AMF3 */
                     }
-                    key = ZSTR_VAL(str_index);
-
-                    if (!key[0]) {
+                    if (!(ZSTR_VAL(str_index)[0])) {
                         continue; /* skip private/protected property */
                     }
-                    if (key[0] == '_') {
+                    if (ZSTR_VAL(str_index)[0] == '_') {
                         continue;
                     }
-
                     encodeStr(ss, ZSTR_VAL(str_index), ZSTR_LEN(str_index), sht);
                 } else {
                     encodeStr(ss, kbuf, sprintf(kbuf, "%ld", num_index), sht);
@@ -382,6 +397,16 @@ static void freePtr(zval *val) {
     efree(Z_PTR_P(val));
 }
 
+static void freeTraitPtr(zval *val) {
+    amf_ref_class_def *def = Z_PTR_P(val);
+
+    if (def->property_names != NULL) {
+        zend_hash_destroy(def->property_names);
+        efree(def->property_names);
+    }
+    efree(def);
+}
+
 PHP_FUNCTION(amf3_encode) {
     smart_str ss = {0};
     zval *val;
@@ -390,7 +415,7 @@ PHP_FUNCTION(amf3_encode) {
     if (zend_parse_parameters(ZEND_NUM_ARGS(), "z|l", &val, &opts) == FAILURE) return;
     zend_hash_init(&sht, 0, 0, freePtr, 0);
     zend_hash_init(&oht, 0, 0, freePtr, 0);
-    zend_hash_init(&tht, 0, 0, freePtr, 0);
+    zend_hash_init(&tht, 0, 0, freeTraitPtr, 0);
     encodeValue(&ss, val, opts, &sht, &oht, &tht);
     zend_hash_destroy(&sht);
     zend_hash_destroy(&oht);
