@@ -286,18 +286,14 @@ static void encodeObject(smart_str *ss, zval *val, int opts, HashTable *sht, Has
                         continue; /* empty key can't be represented in AMF3 */
                     }
                     key = ZSTR_VAL(str_index);
-
                     if (!key[0]) {
                         continue; /* skip private/protected property */
                     }
                     if (key[0] == '_') {
                         continue;
                     }
-
-                    encodeValue(ss, hv, opts, sht, oht, tht);
-                } else {
-                    encodeValue(ss, hv, opts, sht, oht, tht);
                 }
+                encodeValue(ss, hv, opts, sht, oht, tht);
             } ZEND_HASH_FOREACH_END();
             break;
 
@@ -375,6 +371,9 @@ static void encodeValue(smart_str *ss, zval *val, int opts, HashTable *sht, Hash
             break;
         case IS_REFERENCE:
             encodeValue(ss, Z_REFVAL_P(val), opts, sht, oht, tht);
+            break;
+        case IS_INDIRECT:
+            encodeValue(ss, Z_INDIRECT_P(val), opts, sht, oht, tht);
             break;
     }
 }
