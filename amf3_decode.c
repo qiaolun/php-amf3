@@ -300,7 +300,7 @@ static int decodeObject(zval *val, const char *buf, int pos, int size, int opts,
         HT_ALLOW_COW_VIOLATION(HASH_OF(val));
         if (!map && tr->cls) add_assoc_stringl(val, "_class", ZSTR_VAL(tr->cls), ZSTR_LEN(tr->cls));
         else if (ce && (opts & AMF3_CLASS_CONSTRUCT)) { /* call the constructor */
-            zend_call_method_with_0_params(val, ce, &ce->constructor, NULL, NULL);
+            zend_call_method_with_0_params(Z_OBJ_P(val), ce, &ce->constructor, NULL, NULL);
             if (EG(exception)) return -1;
         }
     }

@@ -221,7 +221,7 @@ static void encodeObject(smart_str *ss, zval *val, int opts, HashTable *sht, Has
 
     if (encodeRefObj(ss, val, oht)) return;
 
-    ht = Z_OBJ_HT_P(val)->get_properties(val);
+    ht = Z_OBJ_HT_P(val)->get_properties(Z_OBJ_P(val));
     if (ht == NULL) {
         php_error_docref(NULL, E_WARNING, "invalid properties");
         return;
