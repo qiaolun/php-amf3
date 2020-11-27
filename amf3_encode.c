@@ -355,15 +355,12 @@ static void encodeValue(smart_str *ss, zval *val, int opts, HashTable *sht, Hash
             smart_str_appendc(ss, AMF3_TRUE);
             break;
         case IS_LONG:
-            {
-                zend_long i = Z_LVAL_P(val);
-                if ((i >= AMF3_MIN_INT) && (i <= AMF3_MAX_INT)) {
-                    smart_str_appendc(ss, AMF3_INTEGER);
-                    encodeU29(ss, i);
-                } else {
-                    smart_str_appendc(ss, AMF3_DOUBLE);
-                    encodeDouble(ss, i);
-                }
+            if ((Z_LVAL_P(val) >= AMF3_MIN_INT) && (Z_LVAL_P(val) <= AMF3_MAX_INT)) {
+                smart_str_appendc(ss, AMF3_INTEGER);
+                encodeU29(ss, Z_LVAL_P(val));
+            } else {
+                smart_str_appendc(ss, AMF3_DOUBLE);
+                encodeDouble(ss, Z_LVAL_P(val));
             }
             break;
         case IS_DOUBLE:
