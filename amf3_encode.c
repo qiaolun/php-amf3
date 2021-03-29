@@ -252,18 +252,18 @@ static void encodeObject(smart_str *ss, zval *val, int opts, HashTable *sht, Has
             class_def->property_names = zend_new_array(zend_hash_num_elements(ht));
 
             ZEND_HASH_FOREACH_KEY_VAL(ht, num_index, str_index, hv) {
-                zend_bool is_dynamic = 1;
+                zend_bool unmangle = 0;
                 if (Z_TYPE_P(hv) == IS_INDIRECT) {
                     hv = Z_INDIRECT_P(hv);
                     if (UNEXPECTED(Z_ISUNDEF_P(hv))) {
                         continue;
                     }
 
-                    is_dynamic = 0;
-                }
-
-                if (str_index && zend_check_property_access(Z_OBJ_P(val), str_index, is_dynamic) == FAILURE) {
-                    continue;
+                    ZEND_ASSERT(str_index);
+                    if (zend_check_property_access(Z_OBJ_P(val), str_index) == FAILURE) {
+                        continue;
+                    }
+                    unmangle = 1;
                 }
 
                 if (str_index) {

@@ -8,7 +8,7 @@
 
 
 #define PHP_AMF3_VERSION "1.2.2"
-#define PHP_AMF3_VERSION_MINOR "ff15"
+#define PHP_AMF3_VERSION_MINOR "ff.73.16"
 
 extern zend_module_entry amf3_module_entry;
 #define phpext_amf3_ptr &amf3_module_entry
