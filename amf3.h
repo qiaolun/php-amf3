@@ -23,6 +23,7 @@
 
 #define AMF3_MAX_INT     268435455 /*  (2^28)-1 */
 #define AMF3_MIN_INT    -268435456 /* -(2^28)   */
+#define AMF3_MAX_DEPTH  512
 
 // Encoding options
 #define AMF3_FORCE_OBJECT      0x01

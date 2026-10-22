@@ -10,18 +10,22 @@ string amf3_encode(mixed $value [, $options = 0 ])
 
 - Encodes $value into an AMF3 byte-stream.
 - On success, returns an AMF3 representation of the value.
-- On error, returns FALSE and issues a warning message (the only error case is
-  wrong argument count).
+- On an encoding error, returns FALSE and issues a warning message.
+- Recursive PHP arrays and values nested beyond 512 containers are rejected.
+  Repeated and cyclic object references are supported.
 - The $options argument is a bitmask of options. The following bit constants
   are available in a PHP script:
     AMF3_FORCE_OBJECT
-      Force encoding non-dense arrays as anonymous objects.
+      Force encoding arrays as anonymous objects, including dense arrays.
+      Numeric keys become the corresponding string property names.
 
 mixed amf3_decode(string $amf3 [, int &$count [, $options = 0 ]])
 
 - Decodes $amf3 (AMF3 byte-stream) into a PHP value.
 - On success, returns a resulting PHP value.
 - On error, returns NULL and issues a warning message.
+- Values nested beyond 512 containers are rejected. PHP exceptions raised by
+  autoloaders, constructors or property writes propagate to the caller.
 - If $count is provided, the number of bytes actually read from the string
   will be stored in it (the value of -1 indicates an error).
 - The $options argument is a bitmask of options. The following bit constants
@@ -41,10 +45,14 @@ mixed amf3_decode(string $amf3 [, int &$count [, $options = 0 ]])
 Installation
 ------------
 
+The current compatibility target is PHP 8.5. Use phpize, php-config and PHP
+from the same installation, and rebuild the extension for that installation;
+an extension binary built for an older PHP API cannot be reused.
+
 To install the extension, type the following in the source directory:
 
 phpize
-./configure
+./configure --enable-amf3
 make
 make install
 
@@ -69,13 +77,17 @@ Usage constraints
   become strings.
 - In a special case, PHP integers are converted into AMF3 doubles according
   to the specification (see the link below).
-- A PHP array is encoded as a dense array when it has ascending integer keys
-  that start with zero and have no gaps. An empty array adheres to this rule.
-  In all other cases, an array is considered non-dense and encoded as a purely
-  associative array to avoid ambiguity.
+- A PHP array's numeric entries form the dense portion, in insertion order;
+  numeric keys are renumbered from zero. String entries form the associative
+  portion. Empty keys cannot be represented in AMF3 and are skipped.
 - When class mapping is disabled (the default), AMF3 objects are returned as
-  associative arrays; otherwise, they are represented as objects of the
-  corresponding PHP classes.
+  associative arrays, except anonymous objects, which become stdClass objects.
+  When class mapping is enabled, typed objects use the corresponding PHP class.
+  Property writes follow PHP visibility, type, readonly and setter-hook rules;
+  callers do not gain privileged access to mapped properties.
+- Object encoding preserves the existing filtering of non-public properties
+  and property names beginning with an underscore. Uninitialized properties
+  are omitted; virtual property getters are not invoked for encoding.
 
 
 Links

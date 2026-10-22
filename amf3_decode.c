@@ -8,6 +8,7 @@
 #endif
 
 #include "php.h"
+#include <limits.h>
 #include "php_amf3.h"
 #include "Zend/zend_interfaces.h"
 #include "amf3.h"
@@ -27,7 +28,7 @@ static void storeRef(zval *val, HashTable *ht) {
     zend_hash_next_index_insert(ht, &hv);
 }
 
-static int decodeValue(zval *val, const char *buf, int pos, int size, int opts, HashTable *sht, HashTable *oht, HashTable *tht);
+static int decodeValue(zval *val, const char *buf, int pos, int size, int opts, HashTable *sht, HashTable *oht, HashTable *tht, unsigned int depth);
 
 static int decodeU29(int *val, const char *buf, int pos, int size) {
     int ofs = 0, res = 0, tmp;
@@ -53,7 +54,7 @@ static int decodeU29(int *val, const char *buf, int pos, int size) {
 static int decodeDouble(zval *val, const char *buf, int pos, int size) {
     union { int i; char c; } t;
     union { double d; char c[8]; } u;
-    if ((pos + 8) > size) {
+    if (size - pos < 8) {
         php_error(E_WARNING, "Insufficient number data at position %d", pos);
         return -1;
     }
@@ -76,7 +77,7 @@ static int decodeStr(const char **str, int *len, zval *val, const char *buf, int
     def = pfx & 1;
     pfx >>= 1;
     if (def) {
-        if ((pos + pfx) > size) {
+        if (pfx > size - pos) {
             php_error(E_WARNING, "Insufficient data of length %d at position %d", pfx, pos);
             return -1;
         }
@@ -162,7 +163,7 @@ static zval *newKey(zval *val, const char *key, int len) {
     return zend_symtable_str_update(HASH_OF(val), key, len, &hv);
 }
 
-static int decodeArray(zval *val, const char *buf, int pos, int size, int opts, HashTable *sht, HashTable *oht, HashTable *tht) {
+static int decodeArray(zval *val, const char *buf, int pos, int size, int opts, HashTable *sht, HashTable *oht, HashTable *tht, unsigned int depth) {
     int old = pos, ofs, len;
     ofs = decodeRef(&len, val, buf, pos, size, oht);
     if (ofs < 0) return -1;
@@ -177,12 +178,12 @@ static int decodeArray(zval *val, const char *buf, int pos, int size, int opts, 
             if (ofs < 0) return -1;
             pos += ofs;
             if (!klen) break;
-            ofs = decodeValue(newKey(val, key, klen), buf, pos, size, opts, sht, oht, tht);
+            ofs = decodeValue(newKey(val, key, klen), buf, pos, size, opts, sht, oht, tht, depth);
             if (ofs < 0) return -1;
             pos += ofs;
         }
         while (len--) { /* dense portion */
-            ofs = decodeValue(newIdx(val), buf, pos, size, opts, sht, oht, tht);
+            ofs = decodeValue(newIdx(val), buf, pos, size, opts, sht, oht, tht, depth);
             if (ofs < 0) return -1;
             pos += ofs;
         }
@@ -190,7 +191,22 @@ static int decodeArray(zval *val, const char *buf, int pos, int size, int opts, 
     return pos - old;
 }
 
-static int decodeObject(zval *val, const char *buf, int pos, int size, int opts, HashTable *sht, HashTable *oht, HashTable *tht) {
+static int decodeMember(zval *val, const char *key, int len, const char *buf, int pos, int size, int opts, HashTable *sht, HashTable *oht, HashTable *tht, unsigned int depth) {
+    if (Z_TYPE_P(val) == IS_ARRAY) {
+        return decodeValue(newKey(val, key, len), buf, pos, size, opts, sht, oht, tht, depth);
+    }
+    zval member;
+    ZVAL_UNDEF(&member);
+    int ofs = decodeValue(&member, buf, pos, size, opts, sht, oht, tht, depth);
+    if (ofs >= 0 && !EG(exception)) {
+        /* Use an unrelated scope so a caller's class cannot grant private access. */
+        zend_update_property(zend_standard_class_def, Z_OBJ_P(val), key, len, &member);
+    }
+    zval_ptr_dtor(&member);
+    return EG(exception) ? -1 : ofs;
+}
+
+static int decodeObject(zval *val, const char *buf, int pos, int size, int opts, HashTable *sht, HashTable *oht, HashTable *tht, unsigned int depth) {
     int old = pos, ofs, pfx;
     ofs = decodeRef(&pfx, val, buf, pos, size, oht);
     if (ofs < 0) return -1;
@@ -213,7 +229,7 @@ static int decodeObject(zval *val, const char *buf, int pos, int size, int opts,
             if (ofs < 0) return -1;
             pos += ofs;
             if (n > 0) {
-                if ((pos + n) > size) { /* rough security check */
+                if (n > size - pos) { /* rough security check */
                     php_error(E_WARNING, "Inappropriate number of declared class members at position %d", pos);
                     return -1;
                 }
@@ -262,22 +278,23 @@ static int decodeObject(zval *val, const char *buf, int pos, int size, int opts,
                 int mode = ZEND_FETCH_CLASS_DEFAULT | ZEND_FETCH_CLASS_SILENT;
                 if (!(opts & AMF3_CLASS_AUTOLOAD)) mode |= ZEND_FETCH_CLASS_NO_AUTOLOAD;
                 ce = zend_fetch_class(tr->cls, mode);
+                if (EG(exception)) return -1;
                 if (!ce) {
                     php_error(E_WARNING, "Class '%s' not found at position %d", ZSTR_VAL(tr->cls), old);
                     return -1;
                 }
-                object_init_ex(val, ce);
+                if (object_init_ex(val, ce) != SUCCESS) return -1;
             }
         }
         storeRef(val, oht);
         if (tr->fmt & 1) { /* externalizable */
-            ofs = decodeValue(newKey(val, "_data", sizeof("_data")), buf, pos, size, opts, sht, oht, tht);
+            ofs = decodeMember(val, "_data", sizeof("_data") - 1, buf, pos, size, opts, sht, oht, tht, depth);
             if (ofs < 0) return -1;
             pos += ofs;
         } else {
             int i;
             for (i = 0; i < tr->cnt; ++i) {
-                ofs = decodeValue(newKey(val, tr->fld[i], tr->flen[i]), buf, pos, size, opts, sht, oht, tht);
+                ofs = decodeMember(val, tr->fld[i], tr->flen[i], buf, pos, size, opts, sht, oht, tht, depth);
                 if (ofs < 0) return -1;
                 pos += ofs;
             }
@@ -291,26 +308,40 @@ static int decodeObject(zval *val, const char *buf, int pos, int size, int opts,
                         php_error(E_WARNING, "Inappropriate class member name at position %d", pos);
                         return -1;
                     }
-                    ofs = decodeValue(newKey(val, key, klen), buf, pos, size, opts, sht, oht, tht);
+                    ofs = decodeMember(val, key, klen, buf, pos, size, opts, sht, oht, tht, depth);
                     if (ofs < 0) return -1;
                     pos += ofs;
                 }
             }
         }
-        HT_ALLOW_COW_VIOLATION(HASH_OF(val));
-        if (!map && tr->cls) add_assoc_stringl(val, "_class", ZSTR_VAL(tr->cls), ZSTR_LEN(tr->cls));
-        else if (ce && (opts & AMF3_CLASS_CONSTRUCT)) { /* call the constructor */
-            zend_call_method_with_0_params(Z_OBJ_P(val), ce, &ce->constructor, NULL, NULL);
+        if (!map && tr->cls) {
+            HT_ALLOW_COW_VIOLATION(Z_ARRVAL_P(val));
+            add_assoc_stringl(val, "_class", ZSTR_VAL(tr->cls), ZSTR_LEN(tr->cls));
+        } else if (ce && (opts & AMF3_CLASS_CONSTRUCT)) {
+            zend_function *constructor = Z_OBJ_HT_P(val)->get_constructor(Z_OBJ_P(val));
             if (EG(exception)) return -1;
+            if (constructor) {
+                zend_call_known_instance_method_with_0_params(constructor, Z_OBJ_P(val), NULL);
+                if (EG(exception)) return -1;
+            }
         }
     }
     return pos - old;
 }
 
-static int decodeValue(zval *val, const char *buf, int pos, int size, int opts, HashTable *sht, HashTable *oht, HashTable *tht) {
+static int decodeValue(zval *val, const char *buf, int pos, int size, int opts, HashTable *sht, HashTable *oht, HashTable *tht, unsigned int depth) {
     int old = pos, ofs;
+    if (EG(exception)) return -1;
+    if (!val) {
+        php_error(E_WARNING, "Cannot append array element at position %d", pos);
+        return -1;
+    }
     if (pos >= size) {
         php_error(E_WARNING, "Insufficient type data at position %d", pos);
+        return -1;
+    }
+    if ((buf[pos] == AMF3_ARRAY || buf[pos] == AMF3_OBJECT) && depth >= AMF3_MAX_DEPTH) {
+        php_error(E_WARNING, "Maximum nesting depth of %d exceeded", AMF3_MAX_DEPTH);
         return -1;
     }
     switch (buf[pos++]) {
@@ -357,12 +388,12 @@ static int decodeValue(zval *val, const char *buf, int pos, int size, int opts, 
             pos += ofs;
             break;
         case AMF3_ARRAY:
-            ofs = decodeArray(val, buf, pos, size, opts, sht, oht, tht);
+            ofs = decodeArray(val, buf, pos, size, opts, sht, oht, tht, depth + 1);
             if (ofs < 0) return -1;
             pos += ofs;
             break;
         case AMF3_OBJECT:
-            ofs = decodeObject(val, buf, pos, size, opts, sht, oht, tht);
+            ofs = decodeObject(val, buf, pos, size, opts, sht, oht, tht, depth + 1);
             if (ofs < 0) return -1;
             pos += ofs;
             break;
@@ -370,7 +401,7 @@ static int decodeValue(zval *val, const char *buf, int pos, int size, int opts, 
             php_error(E_WARNING, "Unsupported value of type %d at position %d", buf[pos - 1], pos);
             return -1;
     }
-    return pos - old;
+    return EG(exception) ? -1 : pos - old;
 }
 
 static void freeTraits(zval *val) {
@@ -382,26 +413,38 @@ static void freeTraits(zval *val) {
 }
 
 PHP_FUNCTION(amf3_decode) {
-    const char *buf;
-    size_t size;
-    zval *count = 0;
-    long opts = 0;
+    zend_string *input;
+    zval *count = NULL;
+    zend_long opts = 0;
     HashTable sht, oht, tht;
     int ofs;
-    if (zend_parse_parameters(ZEND_NUM_ARGS(), "s|z/l", &buf, &size, &count, &opts) == FAILURE) return;
-    zend_hash_init(&sht, 0, 0, ZVAL_PTR_DTOR, 0);
-    zend_hash_init(&oht, 0, 0, ZVAL_PTR_DTOR, 0);
-    zend_hash_init(&tht, 0, 0, freeTraits, 0);
-    ofs = decodeValue(return_value, buf, 0, size, opts, &sht, &oht, &tht);
+    ZEND_PARSE_PARAMETERS_START(1, 3)
+        Z_PARAM_STR(input)
+        Z_PARAM_OPTIONAL
+        Z_PARAM_ZVAL(count)
+        Z_PARAM_LONG(opts)
+    ZEND_PARSE_PARAMETERS_END();
+
+    /* Keep the input alive if an autoloader, setter or error handler changes its variable. */
+    input = zend_string_copy(input);
+    zend_hash_init(&sht, 0, NULL, ZVAL_PTR_DTOR, 0);
+    zend_hash_init(&oht, 0, NULL, ZVAL_PTR_DTOR, 0);
+    zend_hash_init(&tht, 0, NULL, freeTraits, 0);
+    if (ZSTR_LEN(input) > INT_MAX) {
+        php_error_docref(NULL, E_WARNING, "Input exceeds the supported length");
+        ofs = -1;
+    } else {
+        ofs = decodeValue(return_value, ZSTR_VAL(input), 0, ZSTR_LEN(input), opts, &sht, &oht, &tht, 0);
+    }
     zend_hash_destroy(&sht);
     zend_hash_destroy(&oht);
     zend_hash_destroy(&tht);
-    if (count) {
-        zval_ptr_dtor(count);
-        ZVAL_LONG(count, ofs);
-    }
+    zend_string_release(input);
     if (ofs < 0) {
         zval_ptr_dtor(return_value);
         ZVAL_NULL(return_value);
+    }
+    if (count && !EG(exception)) {
+        ZEND_TRY_ASSIGN_LONG(count, ofs);
     }
 }
