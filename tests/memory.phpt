@@ -1,11 +1,13 @@
 --TEST--
-AMF3 general stress test
+AMF3 general memory test
 --SKIPIF--
 <?php
 	if (!extension_loaded('amf3')) die('skip: amf3 extension not available');
 ?>
 --FILE--
 <?php
+
+srand(85012);
 
 function randf() {
 	return rand() / (getrandmax() + 1);
@@ -96,7 +98,7 @@ function spawn() {
 }
 
 
-// Stress test
+// memory test
 
 for ($i = 0; $i < 1000; ++$i) {
 	$nobj = prob(1);
@@ -106,10 +108,7 @@ for ($i = 0; $i < 1000; ++$i) {
 	$_size;
 	$_obj = amf3_decode($str, $_size);
 	if (($size != $_size) || ($obj != $_obj)) {
-		// print(bin2hex($str) . "\n");
-		// print(bin2hex(var_export($obj, true)) . "\n");
-		// print(bin2hex(var_export($_obj, true)) . "\n");
-		die();
+		die("Round-trip mismatch at iteration $i\n");
 	}
 
 	// Additional decoder's robustness test
@@ -118,5 +117,7 @@ for ($i = 0; $i < 1000; ++$i) {
 	}
 }
 
+echo "OK\n";
 ?>
 --EXPECT--
+OK
